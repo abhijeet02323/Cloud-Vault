@@ -1,1519 +1,267 @@
-const API_URL = "/files";
-
-let allFiles = [];
-let fileToUpdate = null;
-
-
-/* =========================
-   DOM ELEMENTS
-========================= */
-
-const fileInput = document.getElementById("fileInput");
-const browseBtn = document.getElementById("browseBtn");
-const dropZone = document.getElementById("dropZone");
-
-const fileTableBody =
-    document.getElementById("fileTableBody");
-
-const loading =
-    document.getElementById("loading");
-
-const emptyState =
-    document.getElementById("emptyState");
-
-const searchInput =
-    document.getElementById("searchInput");
-
-const totalFiles =
-    document.getElementById("totalFiles");
-
-const totalStorage =
-    document.getElementById("totalStorage");
-
-const storageText =
-    document.getElementById("storageText");
-
-const storagePercent =
-    document.getElementById("storagePercent");
-
-const storageBar =
-    document.getElementById("storageBar");
-
-const refreshBtn =
-    document.getElementById("refreshBtn");
-
-const refreshFilesBtn =
-    document.getElementById("refreshFilesBtn");
-
-const uploadHeroBtn =
-    document.getElementById("uploadHeroBtn");
-
-const uploadProgressContainer =
-    document.getElementById(
-        "uploadProgressContainer"
-    );
-
-const uploadProgress =
-    document.getElementById("uploadProgress");
-
-const uploadPercentage =
-    document.getElementById("uploadPercentage");
-
-const uploadFileName =
-    document.getElementById("uploadFileName");
-
-
-/* Modal */
-
-const updateModal =
-    document.getElementById("updateModal");
-
-const closeModal =
-    document.getElementById("closeModal");
-
-const updateFileInput =
-    document.getElementById("updateFileInput");
-
-const updateBtn =
-    document.getElementById("updateBtn");
-
-const updateFileName =
-    document.getElementById("updateFileName");
-
-
-/* Toast */
-
-const toast =
-    document.getElementById("toast");
-
-const toastMessage =
-    document.getElementById("toastMessage");
-
-
-/* =========================
-   INITIAL LOAD
-========================= */
-
-document.addEventListener(
-    "DOMContentLoaded",
-    loadFiles
-);
-
-
-/* =========================
-   LOAD FILES
-========================= */
-
-async function loadFiles() {
-
-    loading.classList.remove("hidden");
-
-    emptyState.classList.add("hidden");
-
-    fileTableBody.innerHTML = "";
-
-    try {
-
-        const response =
-            await fetch(API_URL);
-
-        if (!response.ok) {
-            throw new Error(
-                "Unable to load files"
-            );
-        }
-
-        const data =
-            await response.json();
-
-        allFiles = data.files || [];
-
-        renderFiles(allFiles);
-
-        updateStatistics(allFiles);
-
-    } catch (error) {
-
-        showToast(
-            error.message,
-            "error"
-        );
-
-    } finally {
-
-        loading.classList.add("hidden");
-
-    }
-
-}
-
-
+const API = "/api";
 let currentPrefix = "";
+let items = [];
+let replaceKey = null;
 
+const $ = (selector) => document.querySelector(selector);
+const fileList = $("#fileList");
+const emptyState = $("#emptyState");
+const toast = $("#toast");
 
-/* ======================================================
-   LOAD CURRENT DIRECTORY
-====================================================== */
+document.addEventListener("DOMContentLoaded", () => {
+  $("#uploadButton").addEventListener("click", () => $("#fileInput").click());
+  $("#newButton").addEventListener("click", () => $("#folderModal").classList.remove("hidden"));
+  $("#folderButton").addEventListener("click", () => $("#folderModal").classList.remove("hidden"));
+  $("#refreshButton").addEventListener("click", loadDirectory);
+  $("#myStorageButton").addEventListener("click", () => loadDirectory(""));
+  $("#fileInput").addEventListener("change", (event) => upload(event.target.files[0]));
+  $("#replaceInput").addEventListener("change", (event) => replace(event.target.files[0]));
+  $("#searchInput").addEventListener("input", render);
+  $("#folderForm").addEventListener("submit", createFolder);
+  document.querySelectorAll("[data-close-modal]").forEach((button) => button.addEventListener("click", closeFolderModal));
+  document.querySelectorAll("[data-close-versions]").forEach((button) => button.addEventListener("click", closeVersionsModal));
+  $("#enableVersioning").addEventListener("click", enableVersioning);
+  $("#dropZone").addEventListener("dragover", (event) => { event.preventDefault(); $("#dropZone").classList.add("dragging"); });
+  $("#dropZone").addEventListener("dragleave", () => $("#dropZone").classList.remove("dragging"));
+  $("#dropZone").addEventListener("drop", (event) => { event.preventDefault(); $("#dropZone").classList.remove("dragging"); upload(event.dataTransfer.files[0]); });
+  loadDirectory();
+  loadVersioningStatus();
+});
 
-async function loadDirectory(prefix = "") {
+async function loadDirectory(prefix = currentPrefix) {
+  currentPrefix = prefix;
+  fileList.innerHTML = '<div class="loading">Loading storage…</div>';
+  emptyState.classList.add("hidden");
+  try {
+    const response = await fetch(`${API}/files?prefix=${encodeURIComponent(currentPrefix)}`);
+    const data = await json(response);
+    if (!response.ok) throw new Error(data.error || "Unable to load storage");
+    items = [...data.folders.map((folder) => ({ ...folder, folder: true })), ...data.files];
+    $("#summary").textContent = `${data.files.length} file${data.files.length === 1 ? "" : "s"} in this folder`;
+    renderBreadcrumb();
+    render();
+  } catch (error) {
+    fileList.innerHTML = "";
+    showToast(error.message, true);
+  }
+}
 
-    currentPrefix = prefix;
+function renderBreadcrumb() {
+  const breadcrumb = $("#breadcrumb");
+  breadcrumb.replaceChildren();
+  const root = document.createElement("button");
+  root.textContent = "My storage";
+  root.addEventListener("click", () => loadDirectory(""));
+  breadcrumb.append(root);
+  let prefix = "";
+  currentPrefix.split("/").filter(Boolean).forEach((part) => {
+    prefix += `${part}/`;
+    const separator = document.createElement("span");
+    separator.textContent = "›";
+    const button = document.createElement("button");
+    button.textContent = part;
+    const destination = prefix;
+    button.addEventListener("click", () => loadDirectory(destination));
+    breadcrumb.append(separator, button);
+  });
+}
 
-    const grid =
-        document.getElementById(
-            "driveGrid"
-        );
+function render() {
+  const query = $("#searchInput").value.toLocaleLowerCase().trim();
+  const visible = items.filter((item) => item.name.toLocaleLowerCase().includes(query));
+  fileList.replaceChildren();
+  emptyState.classList.toggle("hidden", visible.length !== 0);
+  visible.forEach((item) => fileList.append(createRow(item)));
+}
 
-    grid.innerHTML = `
-        <div class="drive-loading">
-            Loading...
-        </div>
-    `;
+function createRow(item) {
+  const row = document.createElement("article");
+  row.className = "file-row";
+  const name = document.createElement("button");
+  name.className = "file-name";
+  name.innerHTML = `<span class="file-icon ${item.folder ? "folder-icon" : ""}">${item.folder ? "■" : fileIcon(item.name)}</span><span>${escapeHtml(item.name)}</span>`;
+  if (item.folder) name.addEventListener("click", () => loadDirectory(item.key));
+  else name.addEventListener("dblclick", () => download(item.key));
+  const size = document.createElement("span");
+  size.textContent = item.folder ? "Folder" : formatBytes(item.size);
+  const modified = document.createElement("span");
+  modified.textContent = item.folder ? "" : formatDate(item.last_modified);
+  const actions = document.createElement("div");
+  actions.className = "actions";
+  if (!item.folder) {
+    actions.append(actionButton("↓", "Download", () => download(item.key)));
+    actions.append(actionButton("↻", "Replace", () => { replaceKey = item.key; $("#replaceInput").click(); }));
+    actions.append(actionButton("◷", "Version history", () => openVersions(item)));
+  }
+  actions.append(actionButton("⋮", "Delete", () => remove(item)));
+  row.append(name, size, modified, actions);
+  return row;
+}
 
+function actionButton(symbol, label, handler) {
+  const button = document.createElement("button");
+  button.className = "action-button";
+  button.textContent = symbol;
+  button.title = label;
+  button.setAttribute("aria-label", label);
+  button.addEventListener("click", handler);
+  return button;
+}
 
-    try {
+function upload(file) {
+  if (!file) return;
+  const form = new FormData();
+  form.append("file", file);
+  form.append("prefix", currentPrefix);
+  requestUpload("POST", `${API}/files`, form, file.name, "File uploaded");
+}
 
-        const response =
-            await fetch(
-                `/api/files?prefix=${encodeURIComponent(prefix)}`
-            );
+function replace(file) {
+  if (!file || !replaceKey) return;
+  const form = new FormData();
+  form.append("file", file);
+  form.append("key", replaceKey);
+  requestUpload("PUT", `${API}/files`, form, file.name, "File replaced");
+  replaceKey = null;
+}
 
+function requestUpload(method, url, body, name, successMessage) {
+  const status = $("#uploadStatus");
+  $("#uploadName").textContent = name;
+  status.classList.remove("hidden");
+  const xhr = new XMLHttpRequest();
+  xhr.open(method, url);
+  xhr.upload.onprogress = (event) => {
+    if (!event.lengthComputable) return;
+    const percent = Math.round((event.loaded / event.total) * 100);
+    $("#uploadProgress").style.width = `${percent}%`;
+    $("#uploadPercent").textContent = `${percent}%`;
+  };
+  xhr.onload = () => {
+    status.classList.add("hidden");
+    if (xhr.status >= 200 && xhr.status < 300) { showToast(successMessage); loadDirectory(); }
+    else { let message = "Upload failed"; try { message = JSON.parse(xhr.responseText).error || message; } catch (_) {} showToast(message, true); }
+  };
+  xhr.onerror = () => { status.classList.add("hidden"); showToast("Network error while uploading", true); };
+  xhr.send(body);
+}
 
-        const data =
-            await response.json();
+async function download(key) {
+  try {
+    const response = await fetch(`${API}/download?key=${encodeURIComponent(key)}`);
+    const data = await json(response);
+    if (!response.ok) throw new Error(data.error || "Unable to prepare download");
+    window.location.assign(data.url);
+  } catch (error) { showToast(error.message, true); }
+}
 
+async function remove(item) {
+  if (!window.confirm(`Delete ${item.folder ? "folder" : "file"} “${item.name}”?`)) return;
+  try {
+    const response = await fetch(`${API}/files?key=${encodeURIComponent(item.key)}`, { method: "DELETE" });
+    const data = await json(response);
+    if (!response.ok) throw new Error(data.error || "Unable to delete");
+    showToast("Deleted");
+    loadDirectory();
+  } catch (error) { showToast(error.message, true); }
+}
 
-        renderBreadcrumb(prefix);
+async function createFolder(event) {
+  event.preventDefault();
+  const name = $("#folderName").value.trim();
+  try {
+    const response = await fetch(`${API}/folders`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, parent: currentPrefix }) });
+    const data = await json(response);
+    if (!response.ok) throw new Error(data.error || "Unable to create folder");
+    closeFolderModal();
+    $("#folderName").value = "";
+    showToast("Folder created");
+    loadDirectory();
+  } catch (error) { showToast(error.message, true); }
+}
 
-        renderDrive(
-            data.folders || [],
-            data.files || []
-        );
+async function loadVersioningStatus() {
+  try {
+    const response = await fetch(`${API}/versioning`);
+    const data = await json(response);
+    if (!response.ok) throw new Error(data.error || "Unable to check S3 versioning");
+    $("#versioningNotice").classList.toggle("hidden", data.enabled);
+  } catch (error) { showToast(error.message, true); }
+}
 
+async function enableVersioning() {
+  const button = $("#enableVersioning");
+  button.disabled = true;
+  button.textContent = "Enabling…";
+  try {
+    const response = await fetch(`${API}/versioning`, { method: "POST" });
+    const data = await json(response);
+    if (!response.ok) throw new Error(data.error || "Unable to enable versioning");
+    $("#versioningNotice").classList.add("hidden");
+    showToast("S3 versioning enabled. Future replacements will be retained.");
+  } catch (error) { showToast(error.message, true); }
+  finally { button.disabled = false; button.textContent = "Enable versioning"; }
+}
 
-    } catch (error) {
-
-        grid.innerHTML = `
-            <div class="drive-error">
-                Unable to load directory.
-            </div>
-        `;
-
+async function openVersions(item) {
+  const modal = $("#versionsModal");
+  const list = $("#versionsList");
+  $("#versionFileName").textContent = item.name;
+  list.innerHTML = '<div class="loading">Loading version history…</div>';
+  modal.classList.remove("hidden");
+  try {
+    const response = await fetch(`${API}/versions?key=${encodeURIComponent(item.key)}`);
+    const data = await json(response);
+    if (!response.ok) throw new Error(data.error || "Unable to load version history");
+    list.replaceChildren();
+    if (!data.versions.length) {
+      list.innerHTML = '<p class="no-versions">No saved versions. Enable S3 versioning, then replace this file to retain previous versions.</p>';
+      return;
     }
-
+    data.versions.forEach((version) => list.append(versionRow(item.key, version)));
+  } catch (error) { list.innerHTML = `<p class="no-versions">${escapeHtml(error.message)}</p>`; }
 }
 
-function renderDrive(
-    folders,
-    files
-) {
-
-    const grid =
-        document.getElementById(
-            "driveGrid"
-        );
-
-
-    grid.innerHTML = "";
-
-
-    /*
-       FOLDERS
-    */
-
-    folders.forEach(
-        folder => {
-
-            const card =
-                document.createElement(
-                    "div"
-                );
-
-
-            card.className =
-                "drive-item folder-item";
-
-
-            card.innerHTML = `
-
-                <div class="drive-item-icon folder">
-                    📁
-                </div>
-
-                <div class="drive-item-info">
-
-                    <strong>
-                        ${escapeHtml(
-                            folder.name
-                        )}
-                    </strong>
-
-                    <span>
-                        Folder
-                    </span>
-
-                </div>
-
-                <button
-                    class="item-menu"
-                    onclick="event.stopPropagation();
-                             deleteDriveItem('${escapeAttribute(folder.key)}')">
-
-                    ⋮
-
-                </button>
-
-            `;
-
-
-            card.addEventListener(
-                "dblclick",
-                () => {
-
-                    loadDirectory(
-                        folder.key
-                    );
-
-                }
-            );
-
-
-            grid.appendChild(card);
-
-        }
-    );
-
-function renderBreadcrumb(
-    prefix
-) {
-
-    const breadcrumb =
-        document.getElementById(
-            "breadcrumb"
-        );
-
-
-    breadcrumb.innerHTML = `
-        <button
-            onclick="navigateTo('')">
-
-            My Drive
-
-        </button>
-    `;
-
-
-    if (!prefix) {
-        return;
-    }
-
-
-    const parts =
-        prefix
-            .split("/")
-            .filter(Boolean);
-
-
-    let accumulated = "";
-
-
-    parts.forEach(
-        (part, index) => {
-
-            accumulated +=
-                part + "/";
-
-
-            const separator =
-                document.createElement(
-                    "span"
-                );
-
-            separator.textContent =
-                " / ";
-
-
-            breadcrumb.appendChild(
-                separator
-            );
-
-
-            const button =
-                document.createElement(
-                    "button"
-                );
-
-
-            button.textContent =
-                part;
-
-
-            const target =
-                accumulated;
-
-
-            button.onclick = () =>
-                navigateTo(target);
-
-
-            breadcrumb.appendChild(
-                button
-            );
-
-        }
-    );
-
+function versionRow(key, version) {
+  const row = document.createElement("div");
+  row.className = "version-row";
+  const description = document.createElement("div");
+  description.innerHTML = `<strong>${version.is_latest ? "Current version" : "Previous version"}</strong><span>${formatDateTime(version.last_modified)} · ${formatBytes(version.size)}</span>`;
+  const actions = document.createElement("div");
+  actions.className = "version-actions";
+  actions.append(actionButton("↓", "Download this version", () => downloadVersion(key, version.version_id)));
+  if (!version.is_latest) actions.append(actionButton("↺", "Restore this version", () => restoreVersion(key, version.version_id)));
+  row.append(description, actions);
+  return row;
 }
 
-
-function navigateTo(
-    prefix
-) {
-
-    loadDirectory(
-        prefix
-    );
-
+async function downloadVersion(key, versionId) {
+  try {
+    const response = await fetch(`${API}/version-download?key=${encodeURIComponent(key)}&version_id=${encodeURIComponent(versionId)}`);
+    const data = await json(response);
+    if (!response.ok) throw new Error(data.error || "Unable to prepare version download");
+    window.location.assign(data.url);
+  } catch (error) { showToast(error.message, true); }
 }
 
-    /*
-       FILES
-    */
-
-    files.forEach(
-        file => {
-
-            const card =
-                document.createElement(
-                    "div"
-                );
-
-
-            card.className =
-                "drive-item";
-
-
-            card.innerHTML = `
-
-                <div class="drive-item-icon file">
-                    ${getFileIcon(
-                        file.name
-                    )}
-                </div>
-
-                <div class="drive-item-info">
-
-                    <strong title="${escapeHtml(file.name)}">
-                        ${escapeHtml(file.name)}
-                    </strong>
-
-                    <span>
-                        ${formatBytes(file.size)}
-                    </span>
-
-                </div>
-
-
-                <div class="item-menu-wrapper">
-
-                    <button
-                        class="item-menu"
-                        onclick="toggleFileMenu(event, '${escapeAttribute(file.key)}')">
-
-                        ⋮
-
-                    </button>
-
-                </div>
-
-            `;
-
-
-            grid.appendChild(card);
-
-        }
-    );
-
-
-    if (
-        folders.length === 0 &&
-        files.length === 0
-    ) {
-
-        grid.innerHTML = `
-
-            <div class="drive-empty">
-
-                <div>
-                    ☁
-                </div>
-
-                <h3>
-                    This folder is empty
-                </h3>
-
-                <p>
-                    Create a folder or upload a file.
-                </p>
-
-            </div>
-
-        `;
-
-    }
-
+async function restoreVersion(key, versionId) {
+  if (!window.confirm("Restore this version as the current file? The current file will become a new saved version.")) return;
+  try {
+    const response = await fetch(`${API}/versions/restore`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key, version_id: versionId }) });
+    const data = await json(response);
+    if (!response.ok) throw new Error(data.error || "Unable to restore version");
+    showToast("Version restored");
+    closeVersionsModal();
+    loadDirectory();
+  } catch (error) { showToast(error.message, true); }
 }
 
-/* =========================
-   UPLOAD
-========================= */
-
-browseBtn.addEventListener(
-    "click",
-    () => fileInput.click()
-);
-
-
-uploadHeroBtn.addEventListener(
-    "click",
-    () => {
-
-        document
-            .getElementById("upload")
-            .scrollIntoView({
-                behavior: "smooth"
-            });
-
-        setTimeout(
-            () => fileInput.click(),
-            400
-        );
-
-    }
-);
-
-
-fileInput.addEventListener(
-    "change",
-    event => {
-
-        const file =
-            event.target.files[0];
-
-        if (file) {
-            uploadFile(file);
-        }
-
-    }
-);
-
-
-/* =========================
-   DRAG & DROP
-========================= */
-
-dropZone.addEventListener(
-    "dragover",
-    event => {
-
-        event.preventDefault();
-
-        dropZone.classList.add(
-            "dragging"
-        );
-
-    }
-);
-
-
-dropZone.addEventListener(
-    "dragleave",
-    () => {
-
-        dropZone.classList.remove(
-            "dragging"
-        );
-
-    }
-);
-
-
-dropZone.addEventListener(
-    "drop",
-    event => {
-
-        event.preventDefault();
-
-        dropZone.classList.remove(
-            "dragging"
-        );
-
-        const file =
-            event.dataTransfer.files[0];
-
-        if (file) {
-            uploadFile(file);
-        }
-
-    }
-);
-
-
-dropZone.addEventListener(
-    "click",
-    event => {
-
-        if (
-            event.target === dropZone ||
-            event.target.closest(".upload-icon") ||
-            event.target.tagName === "H3" ||
-            event.target.tagName === "P"
-        ) {
-
-            fileInput.click();
-
-        }
-
-    }
-);
-
-
-/* =========================
-   UPLOAD REQUEST
-========================= */
-
-function uploadFile(file) {
-
-    const formData =
-        new FormData();
-
-    formData.append(
-        "file",
-        file
-    );
-
-    formData.append(
-        "prefix",
-        currentPrefix
-    );
-
-    uploadFileName.textContent =
-        file.name;
-
-    uploadProgressContainer
-        .classList.remove("hidden");
-
-    uploadProgress.style.width =
-        "0%";
-
-    uploadPercentage.textContent =
-        "0%";
-
-
-    const xhr =
-        new XMLHttpRequest();
-
-    xhr.open(
-        "POST",
-        API_URL
-    );
-
-
-    xhr.upload.addEventListener(
-        "progress",
-        event => {
-
-            if (event.lengthComputable) {
-
-                const percent =
-                    Math.round(
-                        (event.loaded /
-                        event.total) *
-                        100
-                    );
-
-                uploadProgress.style.width =
-                    `${percent}%`;
-
-                uploadPercentage.textContent =
-                    `${percent}%`;
-
-            }
-
-        }
-    );
-
-
-    xhr.onload = () => {
-
-        if (
-            xhr.status >= 200 &&
-            xhr.status < 300
-        ) {
-
-            showToast(
-                "File uploaded successfully"
-            );
-
-            loadFiles();
-
-        } else {
-
-            let message =
-                "Upload failed";
-
-            try {
-
-                const data =
-                    JSON.parse(
-                        xhr.responseText
-                    );
-
-                message =
-                    data.error || message;
-
-            } catch {}
-
-            showToast(
-                message,
-                "error"
-            );
-
-        }
-
-        setTimeout(
-            () => {
-
-                uploadProgressContainer
-                    .classList.add(
-                        "hidden"
-                    );
-
-            },
-            1000
-        );
-
-    };
-
-
-    xhr.onerror = () => {
-
-        showToast(
-            "Network error during upload",
-            "error"
-        );
-
-        uploadProgressContainer
-            .classList.add(
-                "hidden"
-            );
-
-    };
-
-
-    xhr.send(formData);
-
-}
-
-
-/* =========================
-   DOWNLOAD
-========================= */
-
-function downloadFile(filename) {
-
-    const decoded =
-        decodeURIComponent(filename);
-
-    window.location.href =
-        `${API_URL}/${encodeURIComponent(decoded)
-            .replace(/%2F/g, "/")}`;
-
-}
-
-
-/* =========================
-   UPDATE MODAL
-========================= */
-
-function openUpdateModal(filename) {
-
-    fileToUpdate = filename;
-
-    updateFileName.textContent =
-        filename;
-
-    updateFileInput.value = "";
-
-    updateModal.classList.remove(
-        "hidden"
-    );
-
-}
-
-
-closeModal.addEventListener(
-    "click",
-    () => {
-
-        updateModal.classList.add(
-            "hidden"
-        );
-
-    }
-);
-
-
-updateModal.addEventListener(
-    "click",
-    event => {
-
-        if (
-            event.target ===
-            updateModal
-        ) {
-
-            updateModal.classList.add(
-                "hidden"
-            );
-
-        }
-
-    }
-);
-
-
-updateBtn.addEventListener(
-    "click",
-    updateFile
-);
-
-
-/* =========================
-   UPDATE FILE
-========================= */
-
-async function updateFile() {
-
-    const file =
-        updateFileInput.files[0];
-
-    if (!file) {
-
-        showToast(
-            "Please select a file",
-            "error"
-        );
-
-        return;
-    }
-
-
-    updateBtn.disabled = true;
-
-    updateBtn.textContent =
-        "Replacing...";
-
-
-    try {
-
-        const formData =
-            new FormData();
-
-        formData.append(
-            "file",
-            file
-        );
-
-
-        const encodedFilename =
-            encodeURIComponent(
-                fileToUpdate
-            ).replace(
-                /%2F/g,
-                "/"
-            );
-
-
-        const response =
-            await fetch(
-                `${API_URL}/${encodedFilename}`,
-                {
-                    method: "PUT",
-                    body: formData
-                }
-            );
-
-
-        const data =
-            await response.json();
-
-
-        if (!response.ok) {
-
-            throw new Error(
-                data.error ||
-                "Update failed"
-            );
-
-        }
-
-
-        showToast(
-            "File updated successfully"
-        );
-
-
-        updateModal.classList.add(
-            "hidden"
-        );
-
-
-        loadFiles();
-
-
-    } catch (error) {
-
-        showToast(
-            error.message,
-            "error"
-        );
-
-    } finally {
-
-        updateBtn.disabled = false;
-
-        updateBtn.textContent =
-            "Replace File";
-
-    }
-
-}
-
-
-/* =========================
-   DELETE
-========================= */
-
-async function deleteFile(filename) {
-
-    if (
-        !confirm(
-            `Delete "${filename}"?\n\nThis action cannot be undone.`
-        )
-    ) {
-        return;
-    }
-
-
-    try {
-
-        const encodedFilename =
-            encodeURIComponent(
-                filename
-            ).replace(
-                /%2F/g,
-                "/"
-            );
-
-
-        const response =
-            await fetch(
-                `${API_URL}/${encodedFilename}`,
-                {
-                    method: "DELETE"
-                }
-            );
-
-
-        const data =
-            await response.json();
-
-
-        if (!response.ok) {
-
-            throw new Error(
-                data.error ||
-                "Delete failed"
-            );
-
-        }
-
-
-        showToast(
-            "File deleted successfully"
-        );
-
-
-        loadFiles();
-
-
-    } catch (error) {
-
-        showToast(
-            error.message,
-            "error"
-        );
-
-    }
-
-}
-
-
-/* =========================
-   SEARCH
-========================= */
-
-searchInput.addEventListener(
-    "input",
-    event => {
-
-        const query =
-            event.target.value
-                .toLowerCase()
-                .trim();
-
-
-        const filtered =
-            allFiles.filter(
-                file =>
-                    file.filename
-                        .toLowerCase()
-                        .includes(query)
-            );
-
-
-        renderFiles(filtered);
-
-    }
-);
-
-
-/* =========================
-   STATISTICS
-========================= */
-
-function updateStatistics(files) {
-
-    const total =
-        files.length;
-
-    const size =
-        files.reduce(
-            (sum, file) =>
-                sum + file.size,
-            0
-        );
-
-
-    totalFiles.textContent =
-        total;
-
-    totalStorage.textContent =
-        formatBytes(size);
-
-    storageText.textContent =
-        `${formatBytes(size)} used`;
-
-
-    /*
-       Example storage limit:
-       5 GB
-    */
-
-    const storageLimit =
-        5 * 1024 * 1024 * 1024;
-
-
-    const percentage =
-        Math.min(
-            (size / storageLimit) * 100,
-            100
-        );
-
-
-    storageBar.style.width =
-        `${percentage}%`;
-
-    storagePercent.textContent =
-        `${percentage.toFixed(1)}%`;
-
-}
-
-
-/* =========================
-   REFRESH
-========================= */
-
-refreshBtn.addEventListener(
-    "click",
-    loadFiles
-);
-
-
-refreshFilesBtn.addEventListener(
-    "click",
-    loadFiles
-);
-
-
-/* =========================
-   UTILITIES
-========================= */
-
-function formatBytes(bytes) {
-
-    if (bytes === 0) {
-        return "0 B";
-    }
-
-    const units = [
-        "B",
-        "KB",
-        "MB",
-        "GB",
-        "TB"
-    ];
-
-    const index =
-        Math.floor(
-            Math.log(bytes) /
-            Math.log(1024)
-        );
-
-    return (
-        parseFloat(
-            (bytes /
-            Math.pow(
-                1024,
-                index
-            )).toFixed(2)
-        ) +
-        " " +
-        units[index]
-    );
-
-}
-
-
-function formatDate(date) {
-
-    return new Date(date)
-        .toLocaleString(
-            undefined,
-            {
-                year: "numeric",
-                month: "short",
-                day: "numeric",
-                hour: "2-digit",
-                minute: "2-digit"
-            }
-        );
-
-}
-
-
-function getExtension(filename) {
-
-    const parts =
-        filename.split(".");
-
-    if (parts.length === 1) {
-        return "FILE";
-    }
-
-    return parts
-        .pop()
-        .toUpperCase();
-
-}
-
-
-function getFileIcon(filename) {
-
-    const extension =
-        getExtension(filename);
-
-    const icons = {
-
-        PDF: "▤",
-
-        PNG: "▧",
-        JPG: "▧",
-        JPEG: "▧",
-        GIF: "▧",
-        WEBP: "▧",
-
-        MP4: "▶",
-        MKV: "▶",
-        AVI: "▶",
-
-        MP3: "♫",
-        WAV: "♫",
-
-        ZIP: "◆",
-        RAR: "◆",
-
-        DOC: "▤",
-        DOCX: "▤",
-
-        XLS: "▦",
-        XLSX: "▦",
-
-        CSV: "▦"
-
-    };
-
-
-    return icons[extension] || "□";
-
-}
-
-
-function escapeHtml(value) {
-
-    return String(value)
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#039;");
-
-}
-
-
-function escapeAttribute(value) {
-
-    return String(value)
-        .replaceAll("\\", "\\\\")
-        .replaceAll("'", "\\'");
-}
-
-
-function showToast(
-    message,
-    type = "success"
-) {
-
-    toastMessage.textContent =
-        message;
-
-
-    const icon =
-        document.getElementById(
-            "toastIcon"
-        );
-
-
-    icon.textContent =
-        type === "error"
-            ? "!"
-            : "✓";
-
-
-    icon.style.color =
-        type === "error"
-            ? "var(--red)"
-            : "var(--green)";
-
-
-    toast.classList.add(
-        "show"
-    );
-
-
-    setTimeout(
-        () => {
-
-            toast.classList.remove(
-                "show"
-            );
-
-        },
-        3000
-    );
-
-}
-
-function openCreateFolderModal() {
-
-    document
-        .getElementById(
-            "folderModal"
-        )
-        .classList.remove(
-            "hidden"
-        );
-
-
-    document
-        .getElementById(
-            "folderName"
-        )
-        .focus();
-
-}
-
-
-function closeFolderModal() {
-
-    document
-        .getElementById(
-            "folderModal"
-        )
-        .classList.add(
-            "hidden"
-        );
-
-}
-
-
-async function createFolder() {
-
-    const input =
-        document.getElementById(
-            "folderName"
-        );
-
-
-    const name =
-        input.value.trim();
-
-
-    if (!name) {
-
-        showToast(
-            "Enter a folder name",
-            "error"
-        );
-
-        return;
-
-    }
-
-
-    try {
-
-        const response =
-            await fetch(
-                "/api/folders",
-                {
-                    method: "POST",
-
-                    headers: {
-                        "Content-Type":
-                            "application/json"
-                    },
-
-                    body: JSON.stringify({
-                        name,
-                        parent:
-                            currentPrefix
-                    })
-                }
-            );
-
-
-        const data =
-            await response.json();
-
-
-        if (!response.ok) {
-
-            throw new Error(
-                data.error
-            );
-
-        }
-
-
-        closeFolderModal();
-
-        input.value = "";
-
-
-        showToast(
-            "Folder created successfully"
-        );
-
-
-        loadDirectory(
-            currentPrefix
-        );
-
-
-    } catch (error) {
-
-        showToast(
-            error.message,
-            "error"
-        );
-
-    }
-
-}
-
-async function openVersionHistory(
-    key
-) {
-
-    const modal =
-        document.getElementById(
-            "versionModal"
-        );
-
-
-    const list =
-        document.getElementById(
-            "versionList"
-        );
-
-
-    const name =
-        document.getElementById(
-            "versionFileName"
-        );
-
-
-    name.textContent =
-        key.split("/").pop();
-
-
-    modal.classList.remove(
-        "hidden"
-    );
-
-
-    list.innerHTML =
-        "Loading versions...";
-
-
-    try {
-
-        const response =
-            await fetch(
-                `/api/versions?key=${encodeURIComponent(key)}`
-            );
-
-
-        const data =
-            await response.json();
-
-
-        list.innerHTML = "";
-
-
-        data.versions.forEach(
-            version => {
-
-                const item =
-                    document.createElement(
-                        "div"
-                    );
-
-
-                item.className =
-                    "version-item";
-
-
-                item.innerHTML = `
-
-                    <div>
-
-                        <strong>
-
-                            ${
-                                version.is_latest
-                                    ? "Current version"
-                                    : "Previous version"
-                            }
-
-                        </strong>
-
-                        <span>
-
-                            ${formatDate(
-                                version.last_modified
-                            )}
-
-                            ·
-
-                            ${formatBytes(
-                                version.size
-                            )}
-
-                        </span>
-
-                    </div>
-
-
-                    <button
-                        class="secondary-button"
-                        onclick="downloadVersion(
-                            '${escapeAttribute(key)}',
-                            '${escapeAttribute(version.version_id)}'
-                        )">
-
-                        ↓
-
-                    </button>
-
-                `;
-
-
-                list.appendChild(
-                    item
-                );
-
-            }
-        );
-
-
-    } catch (error) {
-
-        list.innerHTML =
-            "Unable to load versions.";
-
-    }
-
-}
-
-
-function closeVersionModal() {
-
-    document
-        .getElementById(
-            "versionModal"
-        )
-        .classList.add(
-            "hidden"
-        );
-
-}
-
-
-async function downloadVersion(
-    key,
-    versionId
-) {
-
-    const response =
-        await fetch(
-            `/api/version-download?key=${encodeURIComponent(key)}&version_id=${encodeURIComponent(versionId)}`
-        );
-
-
-    const data =
-        await response.json();
-
-
-    if (data.url) {
-
-        window.open(
-            data.url,
-            "_blank"
-        );
-
-    }
-
-}
+function closeFolderModal() { $("#folderModal").classList.add("hidden"); }
+function closeVersionsModal() { $("#versionsModal").classList.add("hidden"); }
+async function json(response) { try { return await response.json(); } catch (_) { return {}; } }
+function showToast(message, error = false) { toast.textContent = message; toast.className = `toast show${error ? " error" : ""}`; window.clearTimeout(showToast.timer); showToast.timer = window.setTimeout(() => toast.className = "toast", 3500); }
+function formatBytes(size) { if (size === 0) return "0 B"; const units = ["B", "KB", "MB", "GB", "TB"]; const index = Math.min(Math.floor(Math.log(size) / Math.log(1024)), units.length - 1); return `${(size / 1024 ** index).toFixed(index ? 1 : 0)} ${units[index]}`; }
+function formatDate(date) { return date ? new Date(date).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) : "—"; }
+function formatDateTime(date) { return date ? new Date(date).toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"; }
+function fileIcon(name) { const ext = name.split(".").pop().toLowerCase(); if (["jpg", "jpeg", "png", "gif", "webp", "svg"].includes(ext)) return "▧"; if (["pdf"].includes(ext)) return "▤"; if (["doc", "docx"].includes(ext)) return "▤"; if (["xls", "xlsx", "csv"].includes(ext)) return "▦"; if (["mp3", "wav", "mp4", "mov"].includes(ext)) return "◖"; return "▱"; }
+function escapeHtml(value) { const div = document.createElement("div"); div.textContent = value; return div.innerHTML; }

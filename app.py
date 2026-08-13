@@ -1,807 +1,364 @@
 import os
-import io
-import sqlite3
-import secrets
-from datetime import datetime, timedelta
+from pathlib import PurePosixPath
 
 import boto3
-
-from botocore.exceptions import ClientError
-
+from botocore.exceptions import BotoCoreError, ClientError
 from dotenv import load_dotenv
+from flask import Flask, jsonify, render_template, request
 
-from flask import (
-    Flask,
-    request,
-    jsonify,
-    send_file,
-    render_template
-)
-
-
-# =========================================================
-# Configuration
-# =========================================================
 
 load_dotenv()
 
 app = Flask(__name__)
 
-AWS_REGION = os.getenv(
-    "AWS_REGION",
-    "ap-south-1"
-)
-
-S3_BUCKET = os.getenv(
-    "S3_BUCKET_NAME"
-)
-
+AWS_REGION = os.getenv("AWS_REGION", "ap-south-1")
+S3_BUCKET = os.getenv("S3_BUCKET_NAME")
 s3 = boto3.client(
     "s3",
     region_name=AWS_REGION,
-    aws_access_key_id=os.getenv(
-        "AWS_ACCESS_KEY_ID"
-    ),
-    aws_secret_access_key=os.getenv(
-        "AWS_SECRET_ACCESS_KEY"
-    )
+    aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+    aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
 )
 
 
-DATABASE = "cloudvault.db"
+def s3_error(error):
+    return jsonify({"error": str(error)}), 502
 
 
-# =========================================================
-# Database
-# =========================================================
-
-def get_db():
-
-    connection = sqlite3.connect(
-        DATABASE
-    )
-
-    connection.row_factory = sqlite3.Row
-
-    return connection
+def require_bucket():
+    if S3_BUCKET:
+        return None
+    return jsonify({"error": "S3_BUCKET_NAME is not configured"}), 500
 
 
-def init_db():
-
-    db = get_db()
-
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS shares (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            token TEXT UNIQUE NOT NULL,
-            s3_key TEXT NOT NULL,
-            permission TEXT DEFAULT 'view',
-            expires_at TEXT,
-            created_at TEXT NOT NULL
-        )
-    """)
-
-    db.commit()
-
-    db.close()
-
-
-init_db()
-
-
-# =========================================================
-# Helper functions
-# =========================================================
-
-def normalize_prefix(prefix):
-
-    if not prefix:
+def normalize_prefix(value):
+    """Return a safe S3 prefix ending in '/'."""
+    value = (value or "").strip().strip("/")
+    if not value:
         return ""
-
-    prefix = prefix.strip("/")
-
-    if prefix:
-        return prefix + "/"
-
-    return ""
+    parts = PurePosixPath(value).parts
+    if any(part in {".", ".."} for part in parts):
+        raise ValueError("Invalid folder path")
+    return "/".join(parts) + "/"
 
 
-def format_s3_item(obj):
+def validate_key(value, allow_folder=True):
+    value = (value or "").strip().lstrip("/")
+    if not value or "\x00" in value:
+        raise ValueError("A file or folder key is required")
+    if not allow_folder and value.endswith("/"):
+        raise ValueError("A file key is required")
+    parts = PurePosixPath(value.rstrip("/")).parts
+    if any(part in {".", ".."} for part in parts):
+        raise ValueError("Invalid file or folder key")
+    return value
 
+
+def upload_name(filename):
+    name = (filename or "").replace("\\", "/").rsplit("/", 1)[-1].strip()
+    if not name or name in {".", ".."} or "\x00" in name:
+        raise ValueError("Invalid file name")
+    return name
+
+
+def file_item(obj):
     return {
         "key": obj["Key"],
-        "name": obj["Key"].rstrip("/").split("/")[-1],
+        "name": obj["Key"].rsplit("/", 1)[-1],
         "size": obj.get("Size", 0),
-        "last_modified": (
-            obj["LastModified"].isoformat()
-            if obj.get("LastModified")
-            else None
-        ),
-        "is_folder": obj["Key"].endswith("/")
+        "last_modified": obj["LastModified"].isoformat() if obj.get("LastModified") else None,
     }
 
 
-# =========================================================
-# HOME
-# =========================================================
+def version_item(version):
+    return {
+        "version_id": version["VersionId"],
+        "size": version.get("Size", 0),
+        "last_modified": version["LastModified"].isoformat() if version.get("LastModified") else None,
+        "is_latest": version.get("IsLatest", False),
+    }
+
 
 @app.route("/")
 def home():
+    return render_template("index.html")
 
-    return render_template(
-        "index.html"
-    )
-
-
-# =========================================================
-# LIST DIRECTORY
-# =========================================================
 
 @app.route("/api/files", methods=["GET"])
 def list_files():
-
-    prefix = normalize_prefix(
-        request.args.get(
-            "prefix",
-            ""
-        )
-    )
-
+    bucket_error = require_bucket()
+    if bucket_error:
+        return bucket_error
     try:
+        prefix = normalize_prefix(request.args.get("prefix", ""))
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
 
-        response = s3.list_objects_v2(
-            Bucket=S3_BUCKET,
-            Prefix=prefix,
-            Delimiter="/"
-        )
+    folders, files, continuation = {}, [], None
+    try:
+        while True:
+            params = {"Bucket": S3_BUCKET, "Prefix": prefix, "Delimiter": "/"}
+            if continuation:
+                params["ContinuationToken"] = continuation
+            response = s3.list_objects_v2(**params)
+            for item in response.get("CommonPrefixes", []):
+                key = item["Prefix"]
+                folders[key] = {"key": key, "name": key[len(prefix):].rstrip("/")}
+            for item in response.get("Contents", []):
+                if item["Key"] != prefix:
+                    files.append(file_item(item))
+            if not response.get("IsTruncated"):
+                break
+            continuation = response.get("NextContinuationToken")
+            if not continuation:
+                break
+    except (ClientError, BotoCoreError) as error:
+        return s3_error(error)
 
-        folders = []
-
-        for common_prefix in response.get(
-            "CommonPrefixes",
-            []
-        ):
-
-            folder_key = common_prefix[
-                "Prefix"
-            ]
-
-            folders.append({
-                "key": folder_key,
-                "name": folder_key[
-                    len(prefix):
-                ].rstrip("/"),
-                "is_folder": True
-            })
-
-
-        files = []
-
-        for obj in response.get(
-            "Contents",
-            []
-        ):
-
-            key = obj["Key"]
-
-            # Don't display the directory marker itself
-            if key == prefix:
-                continue
-
-            files.append(
-                format_s3_item(obj)
-            )
+    return jsonify({
+        "prefix": prefix,
+        "folders": sorted(folders.values(), key=lambda item: item["name"].lower()),
+        "files": sorted(files, key=lambda item: item["name"].lower()),
+    })
 
 
-        return jsonify({
-            "prefix": prefix,
-            "folders": folders,
-            "files": files
-        })
-
-
-    except ClientError as e:
-
-        return jsonify({
-            "error": str(e)
-        }), 500
-
-
-# =========================================================
-# CREATE DIRECTORY
-# =========================================================
-
-@app.route(
-    "/api/folders",
-    methods=["POST"]
-)
+@app.route("/api/folders", methods=["POST"])
 def create_folder():
-
-    data = request.get_json(
-        silent=True
-    ) or {}
-
-    name = data.get(
-        "name",
-        ""
-    ).strip()
-
-    parent = normalize_prefix(
-        data.get(
-            "parent",
-            ""
-        )
-    )
-
-
-    if not name:
-
-        return jsonify({
-            "error": "Folder name is required"
-        }), 400
-
-
-    if "/" in name:
-
-        return jsonify({
-            "error":
-                "Folder name cannot contain /"
-        }), 400
-
-
-    folder_key = (
-        parent +
-        name +
-        "/"
-    )
-
-
+    bucket_error = require_bucket()
+    if bucket_error:
+        return bucket_error
+    data = request.get_json(silent=True) or {}
     try:
-
-        s3.put_object(
-            Bucket=S3_BUCKET,
-            Key=folder_key,
-            Body=b""
-        )
-
-
-        return jsonify({
-            "message":
-                "Folder created successfully",
-            "folder": folder_key
-        }), 201
-
-
-    except ClientError as e:
-
-        return jsonify({
-            "error": str(e)
-        }), 500
+        raw_name = str(data.get("name") or "").strip()
+        if "/" in raw_name or "\\" in raw_name:
+            raise ValueError("Folder name cannot contain a path separator")
+        name = upload_name(raw_name)
+        key = normalize_prefix(data.get("parent", "")) + name + "/"
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+    try:
+        s3.put_object(Bucket=S3_BUCKET, Key=key, Body=b"")
+    except (ClientError, BotoCoreError) as error:
+        return s3_error(error)
+    return jsonify({"message": "Folder created", "key": key}), 201
 
 
-# =========================================================
-# UPLOAD FILE
-# =========================================================
-
-@app.route(
-    "/api/files",
-    methods=["POST"]
-)
+@app.route("/api/files", methods=["POST"])
 def upload_file():
-
-    if "file" not in request.files:
-
-        return jsonify({
-            "error": "No file provided"
-        }), 400
-
-
-    file = request.files["file"]
-
-    if not file.filename:
-
-        return jsonify({
-            "error": "Filename is empty"
-        }), 400
-
-
-    prefix = normalize_prefix(
-        request.form.get(
-            "prefix",
-            ""
-        )
-    )
-
-
-    key = (
-        prefix +
-        file.filename
-    )
-
-
+    bucket_error = require_bucket()
+    if bucket_error:
+        return bucket_error
+    file = request.files.get("file")
+    if not file:
+        return jsonify({"error": "Choose a file to upload"}), 400
     try:
-
+        key = normalize_prefix(request.form.get("prefix", "")) + upload_name(file.filename)
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+    try:
         s3.upload_fileobj(
             file,
             S3_BUCKET,
             key,
-            ExtraArgs={
-                "ContentType":
-                    file.content_type
-                    or "application/octet-stream"
-            }
+            ExtraArgs={"ContentType": file.content_type or "application/octet-stream"},
         )
+    except (ClientError, BotoCoreError) as error:
+        return s3_error(error)
+    return jsonify({"message": "File uploaded", "key": key}), 201
 
 
-        return jsonify({
-            "message":
-                "File uploaded successfully",
-            "key": key
-        }), 201
-
-
-    except ClientError as e:
-
-        return jsonify({
-            "error": str(e)
-        }), 500
-
-
-# =========================================================
-# DOWNLOAD FILE
-# =========================================================
-
-@app.route(
-    "/api/download",
-    methods=["GET"]
-)
-def download_file():
-
-    key = request.args.get(
-        "key"
-    )
-
-    if not key:
-
-        return jsonify({
-            "error": "File key required"
-        }), 400
-
-
+@app.route("/api/files", methods=["PUT"])
+def replace_file():
+    bucket_error = require_bucket()
+    if bucket_error:
+        return bucket_error
+    file = request.files.get("file")
     try:
+        key = validate_key(request.form.get("key"), allow_folder=False)
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+    if not file:
+        return jsonify({"error": "Choose a replacement file"}), 400
+    try:
+        s3.upload_fileobj(
+            file,
+            S3_BUCKET,
+            key,
+            ExtraArgs={"ContentType": file.content_type or "application/octet-stream"},
+        )
+    except (ClientError, BotoCoreError) as error:
+        return s3_error(error)
+    return jsonify({"message": "File replaced", "key": key})
 
+
+@app.route("/api/versioning", methods=["GET"])
+def versioning_status():
+    bucket_error = require_bucket()
+    if bucket_error:
+        return bucket_error
+    try:
+        response = s3.get_bucket_versioning(Bucket=S3_BUCKET)
+    except (ClientError, BotoCoreError) as error:
+        return s3_error(error)
+    return jsonify({"enabled": response.get("Status") == "Enabled"})
+
+
+@app.route("/api/versioning", methods=["POST"])
+def enable_versioning():
+    """Enable S3 versioning only after an explicit request from the UI."""
+    bucket_error = require_bucket()
+    if bucket_error:
+        return bucket_error
+    try:
+        s3.put_bucket_versioning(
+            Bucket=S3_BUCKET,
+            VersioningConfiguration={"Status": "Enabled"},
+        )
+    except (ClientError, BotoCoreError) as error:
+        return s3_error(error)
+    return jsonify({"message": "S3 versioning enabled"})
+
+
+@app.route("/api/versions", methods=["GET"])
+def list_versions():
+    bucket_error = require_bucket()
+    if bucket_error:
+        return bucket_error
+    try:
+        key = validate_key(request.args.get("key"), allow_folder=False)
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+
+    versions, key_marker, version_id_marker = [], None, None
+    try:
+        while True:
+            params = {"Bucket": S3_BUCKET, "Prefix": key}
+            if key_marker:
+                params["KeyMarker"] = key_marker
+                params["VersionIdMarker"] = version_id_marker
+            response = s3.list_object_versions(**params)
+            versions.extend(
+                version_item(version)
+                for version in response.get("Versions", [])
+                if version["Key"] == key
+            )
+            if not response.get("IsTruncated"):
+                break
+            key_marker = response.get("NextKeyMarker")
+            version_id_marker = response.get("NextVersionIdMarker")
+            if not key_marker:
+                break
+    except (ClientError, BotoCoreError) as error:
+        return s3_error(error)
+    return jsonify({"versions": versions})
+
+
+@app.route("/api/version-download", methods=["GET"])
+def download_version():
+    bucket_error = require_bucket()
+    if bucket_error:
+        return bucket_error
+    try:
+        key = validate_key(request.args.get("key"), allow_folder=False)
+        version_id = (request.args.get("version_id") or "").strip()
+        if not version_id:
+            raise ValueError("A version ID is required")
+        name = key.rsplit("/", 1)[-1].replace('"', "")
         url = s3.generate_presigned_url(
             "get_object",
             Params={
                 "Bucket": S3_BUCKET,
-                "Key": key
+                "Key": key,
+                "VersionId": version_id,
+                "ResponseContentDisposition": f'attachment; filename="{name}"',
             },
-            ExpiresIn=900
+            ExpiresIn=900,
         )
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+    except (ClientError, BotoCoreError) as error:
+        return s3_error(error)
+    return jsonify({"url": url})
 
 
-        return jsonify({
-            "url": url
-        })
-
-
-    except ClientError as e:
-
-        return jsonify({
-            "error": str(e)
-        }), 500
-
-
-# =========================================================
-# DELETE FILE / FOLDER
-# =========================================================
-
-@app.route(
-    "/api/files",
-    methods=["DELETE"]
-)
-def delete_file():
-
-    key = request.args.get(
-        "key"
-    )
-
-    if not key:
-
-        return jsonify({
-            "error": "File key required"
-        }), 400
-
-
+@app.route("/api/versions/restore", methods=["POST"])
+def restore_version():
+    bucket_error = require_bucket()
+    if bucket_error:
+        return bucket_error
+    data = request.get_json(silent=True) or {}
     try:
-
-        # Folder
-        if key.endswith("/"):
-
-            response = s3.list_objects_v2(
-                Bucket=S3_BUCKET,
-                Prefix=key
-            )
-
-            objects = response.get(
-                "Contents",
-                []
-            )
-
-            if objects:
-
-                s3.delete_objects(
-                    Bucket=S3_BUCKET,
-                    Delete={
-                        "Objects": [
-                            {
-                                "Key":
-                                    obj["Key"]
-                            }
-                            for obj in objects
-                        ]
-                    }
-                )
-
-        else:
-
-            s3.delete_object(
-                Bucket=S3_BUCKET,
-                Key=key
-            )
-
-
-        return jsonify({
-            "message":
-                "Deleted successfully"
-        })
-
-
-    except ClientError as e:
-
-        return jsonify({
-            "error": str(e)
-        }), 500
-
-
-# =========================================================
-# VERSION HISTORY
-# =========================================================
-
-@app.route(
-    "/api/versions",
-    methods=["GET"]
-)
-def get_versions():
-
-    key = request.args.get(
-        "key"
-    )
-
-    if not key:
-
-        return jsonify({
-            "error": "File key required"
-        }), 400
-
-
-    try:
-
-        response = s3.list_object_versions(
+        key = validate_key(data.get("key"), allow_folder=False)
+        version_id = str(data.get("version_id") or "").strip()
+        if not version_id:
+            raise ValueError("A version ID is required")
+        s3.copy_object(
             Bucket=S3_BUCKET,
-            Prefix=key
+            Key=key,
+            CopySource={"Bucket": S3_BUCKET, "Key": key, "VersionId": version_id},
         )
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+    except (ClientError, BotoCoreError) as error:
+        return s3_error(error)
+    return jsonify({"message": "Version restored", "key": key})
 
 
-        versions = []
-
-
-        for version in response.get(
-            "Versions",
-            []
-        ):
-
-            if version["Key"] != key:
-                continue
-
-
-            versions.append({
-                "version_id":
-                    version["VersionId"],
-
-                "size":
-                    version.get(
-                        "Size",
-                        0
-                    ),
-
-                "last_modified":
-                    version[
-                        "LastModified"
-                    ].isoformat(),
-
-                "is_latest":
-                    version.get(
-                        "IsLatest",
-                        False
-                    ),
-
-                "etag":
-                    version.get(
-                        "ETag",
-                        ""
-                    )
-            })
-
-
-        return jsonify({
-            "versions": versions
-        })
-
-
-    except ClientError as e:
-
-        return jsonify({
-            "error": str(e)
-        }), 500
-
-
-# =========================================================
-# DOWNLOAD VERSION
-# =========================================================
-
-@app.route(
-    "/api/version-download",
-    methods=["GET"]
-)
-def download_version():
-
-    key = request.args.get(
-        "key"
-    )
-
-    version_id = request.args.get(
-        "version_id"
-    )
-
-
-    if not key or not version_id:
-
-        return jsonify({
-            "error":
-                "Key and version ID required"
-        }), 400
-
-
+@app.route("/api/download", methods=["GET"])
+def download_file():
+    bucket_error = require_bucket()
+    if bucket_error:
+        return bucket_error
     try:
-
+        key = validate_key(request.args.get("key"), allow_folder=False)
+        name = key.rsplit("/", 1)[-1].replace('"', "")
         url = s3.generate_presigned_url(
             "get_object",
             Params={
-                "Bucket":
-                    S3_BUCKET,
-
-                "Key":
-                    key,
-
-                "VersionId":
-                    version_id
+                "Bucket": S3_BUCKET,
+                "Key": key,
+                "ResponseContentDisposition": f'attachment; filename="{name}"',
             },
-            ExpiresIn=900
+            ExpiresIn=900,
         )
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+    except (ClientError, BotoCoreError) as error:
+        return s3_error(error)
+    return jsonify({"url": url})
 
 
-        return jsonify({
-            "url": url
-        })
-
-
-    except ClientError as e:
-
-        return jsonify({
-            "error": str(e)
-        }), 500
-
-
-# =========================================================
-# CREATE SHARE LINK
-# =========================================================
-
-@app.route(
-    "/api/share",
-    methods=["POST"]
-)
-def create_share():
-
-    data = request.get_json(
-        silent=True
-    ) or {}
-
-
-    key = data.get(
-        "key"
-    )
-
-    permission = data.get(
-        "permission",
-        "view"
-    )
-
-    expires_hours = int(
-        data.get(
-            "expires_hours",
-            24
-        )
-    )
-
-
-    if not key:
-
-        return jsonify({
-            "error":
-                "File key required"
-        }), 400
-
-
-    if permission not in [
-        "view",
-        "download"
-    ]:
-
-        return jsonify({
-            "error":
-                "Invalid permission"
-        }), 400
-
-
-    token = secrets.token_urlsafe(
-        32
-    )
-
-
-    expires_at = (
-        datetime.utcnow()
-        +
-        timedelta(
-            hours=expires_hours
-        )
-    ).isoformat()
-
-
-    db = get_db()
-
-
-    db.execute(
-        """
-        INSERT INTO shares
-        (token, s3_key, permission, expires_at, created_at)
-        VALUES (?, ?, ?, ?, ?)
-        """,
-        (
-            token,
-            key,
-            permission,
-            expires_at,
-            datetime.utcnow().isoformat()
-        )
-    )
-
-
-    db.commit()
-
-    db.close()
-
-
-    share_url = (
-        request.host_url.rstrip("/")
-        +
-        "/shared/"
-        +
-        token
-    )
-
-
-    return jsonify({
-        "message":
-            "Share link created",
-
-        "url":
-            share_url,
-
-        "expires_at":
-            expires_at
-    }), 201
-
-
-# =========================================================
-# SHARED FILE
-# =========================================================
-
-@app.route(
-    "/shared/<token>",
-    methods=["GET"]
-)
-def shared_file(token):
-
-    db = get_db()
-
-
-    share = db.execute(
-        """
-        SELECT *
-        FROM shares
-        WHERE token = ?
-        """,
-        (token,)
-    ).fetchone()
-
-
-    db.close()
-
-
-    if not share:
-
-        return jsonify({
-            "error":
-                "Invalid share link"
-        }), 404
-
-
-    expires_at = datetime.fromisoformat(
-        share["expires_at"]
-    )
-
-
-    if datetime.utcnow() > expires_at:
-
-        return jsonify({
-            "error":
-                "Share link has expired"
-        }), 410
-
-
+@app.route("/api/files", methods=["DELETE"])
+def delete_file():
+    bucket_error = require_bucket()
+    if bucket_error:
+        return bucket_error
     try:
+        key = validate_key(request.args.get("key"))
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+    try:
+        if not key.endswith("/"):
+            s3.delete_object(Bucket=S3_BUCKET, Key=key)
+        else:
+            continuation = None
+            while True:
+                params = {"Bucket": S3_BUCKET, "Prefix": key}
+                if continuation:
+                    params["ContinuationToken"] = continuation
+                response = s3.list_objects_v2(**params)
+                objects = [{"Key": item["Key"]} for item in response.get("Contents", [])]
+                for start in range(0, len(objects), 1000):
+                    s3.delete_objects(Bucket=S3_BUCKET, Delete={"Objects": objects[start:start + 1000], "Quiet": True})
+                if not response.get("IsTruncated"):
+                    break
+                continuation = response.get("NextContinuationToken")
+                if not continuation:
+                    break
+    except (ClientError, BotoCoreError) as error:
+        return s3_error(error)
+    return jsonify({"message": "Deleted"})
 
-        url = s3.generate_presigned_url(
-            "get_object",
-            Params={
-                "Bucket":
-                    S3_BUCKET,
-
-                "Key":
-                    share["s3_key"]
-            },
-            ExpiresIn=600
-        )
-
-
-        return jsonify({
-            "key":
-                share["s3_key"],
-
-            "permission":
-                share["permission"],
-
-            "url":
-                url
-        })
-
-
-    except ClientError as e:
-
-        return jsonify({
-            "error": str(e)
-        }), 500
-
-
-# =========================================================
-# START
-# =========================================================
 
 if __name__ == "__main__":
-
-    app.run(
-        host="0.0.0.0",
-        port=5000,
-        debug=True
-    )
+    app.run(host="0.0.0.0", port=5000, debug=True)
