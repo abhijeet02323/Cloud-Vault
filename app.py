@@ -328,6 +328,50 @@ def download_file():
     return jsonify({"url": url})
 
 
+@app.route("/api/open", methods=["GET"])
+def open_file():
+    """Create a temporary, inline S3 URL for opening a file in the browser."""
+    bucket_error = require_bucket()
+    if bucket_error:
+        return bucket_error
+    try:
+        key = validate_key(request.args.get("key"), allow_folder=False)
+        url = s3.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": S3_BUCKET, "Key": key},
+            ExpiresIn=900,
+        )
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+    except (ClientError, BotoCoreError) as error:
+        return s3_error(error)
+    return jsonify({"url": url})
+
+
+@app.route("/api/share", methods=["POST"])
+def create_share_link():
+    """Create an S3-only, time-limited view link; no database state is stored."""
+    bucket_error = require_bucket()
+    if bucket_error:
+        return bucket_error
+    data = request.get_json(silent=True) or {}
+    try:
+        key = validate_key(data.get("key"), allow_folder=False)
+        expires_hours = int(data.get("expires_hours", 24))
+        if not 1 <= expires_hours <= 168:
+            raise ValueError("Link expiration must be between 1 hour and 7 days")
+        url = s3.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": S3_BUCKET, "Key": key},
+            ExpiresIn=expires_hours * 60 * 60,
+        )
+    except (TypeError, ValueError) as error:
+        return jsonify({"error": str(error) or "Invalid share link settings"}), 400
+    except (ClientError, BotoCoreError) as error:
+        return s3_error(error)
+    return jsonify({"url": url, "expires_hours": expires_hours})
+
+
 @app.route("/api/files", methods=["DELETE"])
 def delete_file():
     bucket_error = require_bucket()

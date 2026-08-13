@@ -47,6 +47,9 @@
   <div class="modal-backdrop hidden" id="versionsModal">
     <section class="modal versions-modal"><button class="modal-close" type="button" data-close-versions>×</button><h2>Version history</h2><p class="version-file-name" id="versionFileName"></p><div id="versionsList" class="versions-list"></div></section>
   </div>
+  <div class="modal-backdrop hidden" id="shareModal">
+    <form class="modal share-modal" id="shareForm"><button class="modal-close" type="button" data-close-share>×</button><h2>Share file</h2><p class="version-file-name" id="shareFileName"></p><label>Anyone with the link can view until<select id="shareExpiration"><option value="1">1 hour</option><option value="24" selected>24 hours</option><option value="72">3 days</option><option value="168">7 days</option></select></label><div class="share-link hidden" id="shareLink"><input id="shareUrl" readonly aria-label="Share link"><button type="button" id="copyLink">Copy link</button></div><div class="modal-actions"><button type="button" class="text-button" data-close-share>Cancel</button><button class="primary-button" id="createShareLink">Create link</button></div></form>
+  </div>
   <div class="toast" id="toast" role="status"></div>
   <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
