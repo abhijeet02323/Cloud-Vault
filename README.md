@@ -40,25 +40,6 @@ CloudVault uses **Amazon S3** for reliable and scalable object storage.
 - Delete directories
 - Google Drive-inspired file and folder interface
 
-Example:
-
-```text
-My Drive
-├── Documents
-│   ├── Resume.pdf
-│   └── Certificates.pdf
-│
-├── Projects
-│   ├── CloudVault
-│   │   ├── README.md
-│   │   └── architecture.pdf
-│   │
-│   └── CivicOps
-│
-└── Images
-    └── profile.png
-```
-
 ### 🔄 File Versioning
 
 CloudVault uses **Amazon S3 Versioning** to maintain multiple versions of files.
@@ -133,17 +114,6 @@ CloudVault uses **token-based sharing and S3 presigned URLs** rather than making
 - Search files by name
 - Filter the current file listing
 - Quickly locate stored objects
-
-### 📊 Storage Dashboard
-
-The dashboard provides information about:
-
-- Total files
-- Storage used
-- Storage percentage
-- S3 connection status
-- File metadata
-- Last modified time
 
 ### 🎨 User Interface
 
@@ -225,91 +195,13 @@ CloudVault provides a modern Google Drive-inspired interface with:
 ## Authentication
 
 - GitHub OAuth 2.0
-
-## Database
-
-- SQLite for application metadata
-
 ## AWS SDK
 
 - Boto3
 
 ---
 
-# 🔑 Authentication Flow
 
-CloudVault uses GitHub OAuth 2.0 for authentication.
-
-```text
-User
- │
- │ Click "Login with GitHub"
- ▼
-CloudVault
- │
- │ OAuth Authorization Request
- ▼
-GitHub
- │
- │ User Authorization
- ▼
-GitHub OAuth Callback
- │
- ▼
-CloudVault Backend
- │
- │ Validate authentication
- ▼
-Authenticated Session
- │
- ▼
-CloudVault Dashboard
-```
-
-GitHub credentials are handled by GitHub's OAuth system rather than being stored by CloudVault.
-
----
-
-# 🔗 File Sharing Flow
-
-CloudVault keeps the S3 bucket private and generates temporary access URLs.
-
-```text
-User
- │
- │ Select "Share"
- ▼
-CloudVault API
- │
- │ Generate secure token
- ▼
-Share Metadata
- │
- │ Set expiration time
- ▼
-Shareable Link
- │
- ▼
-Recipient
- │
- │ Open link
- ▼
-CloudVault
- │
- │ Validate token & expiration
- ▼
-S3 Presigned URL
- │
- ▼
-Amazon S3
- │
- ▼
-File
-```
-
-This allows files to remain private while still providing controlled temporary access.
-
----
 
 # 🔄 File Versioning Flow
 
@@ -332,39 +224,14 @@ CloudVault can retrieve the version history and generate a download URL for a sp
 
 ---
 
-# 📂 Project Structure
-
-```text
-CloudVault/
-│
-├── app.py
-├── requirements.txt
-├── .env
-├── .gitignore
-│
-├── templates/
-│   └── index.html
-│
-├── static/
-│   ├── css/
-│   │   └── style.css
-│   │
-│   └── js/
-│       └── app.js
-│
-└── cloudvault.db
-```
-
----
-
 # ⚙️ Installation
 
 ## 1. Clone the repository
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/cloudvault.git
+git clone https://github.com/abhijeet02323/Cloud-Vault.git
 
-cd cloudvault
+cd Cloud-Vault
 ```
 
 ## 2. Create a virtual environment
@@ -496,7 +363,7 @@ http://127.0.0.1:5000
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/` | CloudVault frontend |
+| `GET` | `/` | Cloud-Vault frontend |
 | `GET` | `/api/files` | List files/folders |
 | `POST` | `/api/files` | Upload file |
 | `DELETE` | `/api/files` | Delete file/folder |
@@ -526,34 +393,6 @@ Key security principles include:
 
 ---
 
-# 🚀 Future Improvements
-
-Planned improvements include:
-
-- [ ] User-specific storage
-- [ ] PostgreSQL database
-- [ ] Shared with Me
-- [ ] User-to-user file sharing
-- [ ] Viewer/Editor permissions
-- [ ] Rename files and folders
-- [ ] Move files and folders
-- [ ] Copy files and folders
-- [ ] Trash/Recycle Bin
-- [ ] Restore deleted files
-- [ ] Starred files
-- [ ] Recent files
-- [ ] File preview
-- [ ] Folder sharing
-- [ ] S3 multipart uploads
-- [ ] Large-file upload support
-- [ ] Redis caching
-- [ ] Docker deployment
-- [ ] AWS EC2 deployment
-- [ ] CI/CD pipeline
-- [ ] CloudWatch monitoring
-- [ ] Activity and audit logs
-
----
 
 # 🎯 Project Goals
 
@@ -573,11 +412,3 @@ CloudVault aims to demonstrate practical knowledge of:
 - Web application development
 - Database integration
 - Scalable cloud architecture
-
----
-
-# 📜 License
-
-This project is developed for educational, portfolio, and software development purposes.
-
-Add an appropriate open-source license before distributing the project publicly.
