@@ -151,10 +151,10 @@ CloudVault provides a modern Google Drive-inspired interface with:
                     │     Backend     │
                     └───────┬─────────┘
                             │
-              ┌─────────────┼─────────────┐
-              │             │             │
-              ▼             ▼             ▼
-        GitHub OAuth      Amazon S3     Database
+              ┌─────────────|
+              │             │           
+              ▼             ▼           
+        GitHub OAuth      Amazon S3     
           2.0 Auth      Object Storage
                             │
                   ┌─────────┼─────────┐
@@ -198,29 +198,6 @@ CloudVault provides a modern Google Drive-inspired interface with:
 ## AWS SDK
 
 - Boto3
-
----
-
-
-
-# 🔄 File Versioning Flow
-
-When S3 Versioning is enabled, uploading a new version of an existing object creates another S3 version.
-
-```text
-Upload: report.pdf
-        │
-        ▼
-Amazon S3
-        │
-        ├── Version 1
-        │
-        ├── Version 2
-        │
-        └── Version 3 ← Current
-```
-
-CloudVault can retrieve the version history and generate a download URL for a specific version.
 
 ---
 
