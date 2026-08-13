@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>CloudVault | S3 File Manager</title>
+
+    <link rel="stylesheet"
+          href="../static/style.css">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+          rel="stylesheet">
+</head>
+
+<body>
+
+<div class="app">
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+
+        <div class="brand">
+            <div class="brand-icon">
+                ☁
+            </div>
+
+            <div>
+                <h2>CloudVault</h2>
+                <span>S3 Storage</span>
+            </div>
+        </div>
+
+        <nav class="navigation">
+
+            <a href="#" class="nav-item active">
+                <span>▦</span>
+                Dashboard
+            </a>
+
+            <a href="#files" class="nav-item">
+                <span>▤</span>
+                My Files
+            </a>
+
+            <a href="#upload" class="nav-item">
+                <span>↑</span>
+                Upload
+            </a>
+
+        </nav>
+
+        <div class="storage-card">
+
+            <div class="storage-header">
+                <span>Storage</span>
+                <span id="storagePercent">0%</span>
+            </div>
+
+            <div class="progress">
+                <div class="progress-bar" id="storageBar"></div>
+            </div>
+
+            <p id="storageText">
+                0 B used
+            </p>
+
+        </div>
+
+        <div class="sidebar-footer">
+            <span class="status-dot"></span>
+            S3 Connected
+        </div>
+
+    </aside>
+
+
+    <!-- Main -->
+    <main class="main">
+
+        <!-- Header -->
+        <header class="topbar">
+
+            <div class="mobile-brand">
+                ☁ CloudVault
+            </div>
+
+            <div class="topbar-right">
+
+                <button class="icon-button" id="refreshBtn">
+                    ↻
+                </button>
+
+                <div class="profile">
+                    <div class="avatar">
+                        A
+                    </div>
+
+                    <div>
+                        <strong>Admin</strong>
+                        <span>Cloud Manager</span>
+                    </div>
+                </div>
+
+            </div>
+
+        </header>
+
+
+        <!-- Content -->
+        <section class="content">
+
+            <!-- Hero -->
+            <div class="hero">
+
+                <div>
+                    <span class="eyebrow">
+                        AWS S3 STORAGE
+                    </span>
+
+                    <h1>
+                        Manage your cloud files.
+                    </h1>
+
+                    <p>
+                        Upload, organize, download and manage your files
+                        securely with Amazon S3.
+                    </p>
+                </div>
+
+                <button class="primary-button" id="uploadHeroBtn">
+                    <span>↑</span>
+                    Upload File
+                </button>
+
+            </div>
+
+
+            <!-- Statistics -->
+            <div class="stats-grid">
+
+                <div class="stat-card">
+                    <div class="stat-icon blue">
+                        ◫
+                    </div>
+
+                    <div>
+                        <span>Total Files</span>
+                        <strong id="totalFiles">0</strong>
+                    </div>
+                </div>
+
+
+                <div class="stat-card">
+                    <div class="stat-icon purple">
+                        ◈
+                    </div>
+
+                    <div>
+                        <span>Storage Used</span>
+                        <strong id="totalStorage">0 B</strong>
+                    </div>
+                </div>
+
+
+                <div class="stat-card">
+                    <div class="stat-icon green">
+                        ✓
+                    </div>
+
+                    <div>
+                        <span>System Status</span>
+                        <strong class="online">
+                            Online
+                        </strong>
+                    </div>
+                </div>
+
+            </div>
+
+
+            <!-- Upload -->
+            <section class="upload-section" id="upload">
+
+                <div class="section-heading">
+
+                    <div>
+                        <h2>Upload files</h2>
+
+                        <p>
+                            Add a new file to your S3 bucket.
+                        </p>
+                    </div>
+
+                </div>
+
+
+                <div class="drop-zone" id="dropZone">
+
+                    <input
+                        type="file"
+                        id="fileInput"
+                        hidden
+                    >
+
+                    <div class="upload-icon">
+                        ↑
+                    </div>
+
+                    <h3>
+                        Drop your file here
+                    </h3>
+
+                    <p>
+                        or click to browse from your computer
+                    </p>
+
+                    <button class="secondary-button" id="browseBtn">
+                        Browse Files
+                    </button>
+
+                    <small>
+                        Your file will be securely uploaded to Amazon S3
+                    </small>
+
+                </div>
+
+                <div id="uploadProgressContainer"
+                     class="upload-progress hidden">
+
+                    <div class="progress-info">
+
+                        <span id="uploadFileName">
+                            Uploading...
+                        </span>
+
+                        <span id="uploadPercentage">
+                            0%
+                        </span>
+
+                    </div>
+
+                    <div class="progress">
+                        <div class="progress-bar"
+                             id="uploadProgress"></div>
+                    </div>
+
+                </div>
+
+            </section>
+
+
+            <!-- Files -->
+            <section class="files-section" id="files">
+
+                <div class="files-header">
+
+                    <div>
+                        <h2>My Files</h2>
+
+                        <p>
+                            Files stored in your S3 bucket.
+                        </p>
+                    </div>
+
+                    <div class="file-actions">
+
+                        <div class="search-box">
+
+                            <span>⌕</span>
+
+                            <input
+                                type="text"
+                                id="searchInput"
+                                placeholder="Search files..."
+                            >
+
+                        </div>
+
+                        <button
+                            class="secondary-button"
+                            id="refreshFilesBtn">
+
+                            ↻ Refresh
+
+                        </button>
+
+                    </div>
+
+                </div>
+
+
+                <!-- Loading -->
+                <div id="loading" class="loading">
+
+                    <div class="spinner"></div>
+
+                    <span>
+                        Loading files...
+                    </span>
+
+                </div>
+
+
+                <!-- Empty state -->
+                <div id="emptyState"
+                     class="empty-state hidden">
+
+                    <div class="empty-icon">
+                        ☁
+                    </div>
+
+                    <h3>
+                        No files found
+                    </h3>
+
+                    <p>
+                        Upload your first file to get started.
+                    </p>
+
+                </div>
+
+
+                <!-- Table -->
+                <div class="table-container">
+
+                    <table>
+
+                        <thead>
+
+                        <tr>
+                            <th>File</th>
+                            <th>Size</th>
+                            <th>Last Modified</th>
+                            <th>Actions</th>
+                        </tr>
+
+                        </thead>
+
+                        <tbody id="fileTableBody">
+
+                        </tbody>
+
+                    </table>
+
+                </div>
+
+            </section>
+
+        </section>
+
+    </main>
+
+</div>
+
+
+<!-- Update Modal -->
+
+<div class="modal-overlay hidden" id="updateModal">
+
+    <div class="modal">
+
+        <button class="modal-close" id="closeModal">
+            ×
+        </button>
+
+        <div class="modal-icon">
+            ↑
+        </div>
+
+        <h2>
+            Replace File
+        </h2>
+
+        <p>
+            Select a new file to replace
+            <strong id="updateFileName"></strong>.
+        </p>
+
+        <input
+            type="file"
+            id="updateFileInput"
+        >
+
+        <button
+            class="primary-button full"
+            id="updateBtn">
+
+            Replace File
+
+        </button>
+
+    </div>
+
+</div>
+
+
+<!-- Toast -->
+
+<div id="toast" class="toast">
+
+    <span id="toastIcon">✓</span>
+
+    <span id="toastMessage">
+        Success
+    </span>
+
+</div>
+
+
+<script src="../static/app.js"></script>
+
+</body>
+
+</html>
