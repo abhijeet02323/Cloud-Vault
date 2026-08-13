@@ -4,7 +4,8 @@ import io
 import boto3
 from botocore.exceptions import ClientError
 from dotenv import load_dotenv
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify, send_file, render_template
+
 
 load_dotenv()
 
@@ -31,10 +32,7 @@ s3 = boto3.client(
 
 @app.route("/", methods=["GET"])
 def home():
-    return jsonify({
-        "message": "S3 File Manager API",
-        "status": "running"
-    })
+    return render_template("index.html")
 
 
 # --------------------------------------------------
