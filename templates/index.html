@@ -139,6 +139,42 @@
 
             </div>
 
+            <div
+                class="modal-overlay hidden"
+                id="versionModal">
+
+                <div class="modal version-modal">
+
+                    <button
+                        class="modal-close"
+                        onclick="closeVersionModal()">
+
+                        ×
+
+                    </button>
+
+                    <div class="modal-icon">
+                        ↻
+                    </div>
+
+                    <h2>
+                        Version History
+                    </h2>
+
+                    <p id="versionFileName"></p>
+
+                    <div
+                        class="version-list"
+                        id="versionList">
+
+                        Loading...
+
+                    </div>
+
+                </div>
+
+            </div>
+
 
             <!-- Statistics -->
             <div class="stats-grid">
@@ -253,6 +289,85 @@
 
             </section>
 
+            <div
+                class="modal-overlay hidden"
+                id="folderModal">
+
+                <div class="modal">
+
+                    <button
+                        class="modal-close"
+                        onclick="closeFolderModal()">
+
+                        ×
+
+                    </button>
+
+                    <div class="modal-icon">
+                        📁
+                    </div>
+
+                    <h2>
+                        New Folder
+                    </h2>
+
+                    <p>
+                        Create a new folder in the current directory.
+                    </p>
+
+                    <input
+                        type="text"
+                        id="folderName"
+                        placeholder="Folder name"
+                    >
+
+                    <button
+                        class="primary-button full"
+                        onclick="createFolder()">
+
+                        Create Folder
+
+                    </button>
+
+                </div>
+
+            </div>
+
+
+            <div class="drive-toolbar">
+
+                <div class="breadcrumb" id="breadcrumb">
+                    <button onclick="navigateTo('')">
+                        My Drive
+                    </button>
+                </div>
+
+                <div class="drive-actions">
+
+                    <button
+                        class="drive-button"
+                        onclick="openCreateFolderModal()">
+
+                        + New Folder
+
+                    </button>
+
+                    <button
+                        class="drive-button primary"
+                        onclick="triggerUpload()">
+
+                        ↑ Upload
+
+                    </button>
+
+                </div>
+
+            </div>
+
+
+            <div class="drive-grid" id="driveGrid">
+
+            </div>
 
             <!-- Files -->
             <section class="files-section" id="files">

@@ -148,114 +148,321 @@ async function loadFiles() {
 }
 
 
-/* =========================
-   RENDER FILES
-========================= */
+let currentPrefix = "";
 
-function renderFiles(files) {
 
-    fileTableBody.innerHTML = "";
+/* ======================================================
+   LOAD CURRENT DIRECTORY
+====================================================== */
 
-    if (files.length === 0) {
+async function loadDirectory(prefix = "") {
 
-        emptyState.classList.remove(
-            "hidden"
+    currentPrefix = prefix;
+
+    const grid =
+        document.getElementById(
+            "driveGrid"
         );
 
-        return;
-    }
-
-    emptyState.classList.add(
-        "hidden"
-    );
-
-
-    files.forEach(file => {
-
-        const row =
-            document.createElement("tr");
-
-        row.innerHTML = `
-
-            <td>
-
-                <div class="file-name">
-
-                    <div class="file-icon">
-                        ${getFileIcon(file.filename)}
-                    </div>
-
-                    <div class="file-info">
-
-                        <strong title="${escapeHtml(file.filename)}">
-                            ${escapeHtml(file.filename)}
-                        </strong>
-
-                        <span>
-                            ${getExtension(file.filename)}
-                        </span>
-
-                    </div>
-
-                </div>
-
-            </td>
+    grid.innerHTML = `
+        <div class="drive-loading">
+            Loading...
+        </div>
+    `;
 
 
-            <td>
-                ${formatBytes(file.size)}
-            </td>
+    try {
+
+        const response =
+            await fetch(
+                `/api/files?prefix=${encodeURIComponent(prefix)}`
+            );
 
 
-            <td>
-                ${formatDate(file.last_modified)}
-            </td>
+        const data =
+            await response.json();
 
 
-            <td>
+        renderBreadcrumb(prefix);
 
-                <div class="actions">
-
-                    <button
-                        class="action-btn"
-                        title="Download"
-                        onclick="downloadFile('${encodeURIComponent(file.filename)}')">
-
-                        ↓
-
-                    </button>
+        renderDrive(
+            data.folders || [],
+            data.files || []
+        );
 
 
-                    <button
-                        class="action-btn"
-                        title="Replace"
-                        onclick="openUpdateModal('${escapeAttribute(file.filename)}')">
+    } catch (error) {
 
-                        ↻
-
-                    </button>
-
-
-                    <button
-                        class="action-btn delete"
-                        title="Delete"
-                        onclick="deleteFile('${escapeAttribute(file.filename)}')">
-
-                        ×
-
-                    </button>
-
-                </div>
-
-            </td>
+        grid.innerHTML = `
+            <div class="drive-error">
+                Unable to load directory.
+            </div>
         `;
 
-        fileTableBody.appendChild(row);
-
-    });
+    }
 
 }
 
+function renderDrive(
+    folders,
+    files
+) {
+
+    const grid =
+        document.getElementById(
+            "driveGrid"
+        );
+
+
+    grid.innerHTML = "";
+
+
+    /*
+       FOLDERS
+    */
+
+    folders.forEach(
+        folder => {
+
+            const card =
+                document.createElement(
+                    "div"
+                );
+
+
+            card.className =
+                "drive-item folder-item";
+
+
+            card.innerHTML = `
+
+                <div class="drive-item-icon folder">
+                    📁
+                </div>
+
+                <div class="drive-item-info">
+
+                    <strong>
+                        ${escapeHtml(
+                            folder.name
+                        )}
+                    </strong>
+
+                    <span>
+                        Folder
+                    </span>
+
+                </div>
+
+                <button
+                    class="item-menu"
+                    onclick="event.stopPropagation();
+                             deleteDriveItem('${escapeAttribute(folder.key)}')">
+
+                    ⋮
+
+                </button>
+
+            `;
+
+
+            card.addEventListener(
+                "dblclick",
+                () => {
+
+                    loadDirectory(
+                        folder.key
+                    );
+
+                }
+            );
+
+
+            grid.appendChild(card);
+
+        }
+    );
+
+function renderBreadcrumb(
+    prefix
+) {
+
+    const breadcrumb =
+        document.getElementById(
+            "breadcrumb"
+        );
+
+
+    breadcrumb.innerHTML = `
+        <button
+            onclick="navigateTo('')">
+
+            My Drive
+
+        </button>
+    `;
+
+
+    if (!prefix) {
+        return;
+    }
+
+
+    const parts =
+        prefix
+            .split("/")
+            .filter(Boolean);
+
+
+    let accumulated = "";
+
+
+    parts.forEach(
+        (part, index) => {
+
+            accumulated +=
+                part + "/";
+
+
+            const separator =
+                document.createElement(
+                    "span"
+                );
+
+            separator.textContent =
+                " / ";
+
+
+            breadcrumb.appendChild(
+                separator
+            );
+
+
+            const button =
+                document.createElement(
+                    "button"
+                );
+
+
+            button.textContent =
+                part;
+
+
+            const target =
+                accumulated;
+
+
+            button.onclick = () =>
+                navigateTo(target);
+
+
+            breadcrumb.appendChild(
+                button
+            );
+
+        }
+    );
+
+}
+
+
+function navigateTo(
+    prefix
+) {
+
+    loadDirectory(
+        prefix
+    );
+
+}
+
+    /*
+       FILES
+    */
+
+    files.forEach(
+        file => {
+
+            const card =
+                document.createElement(
+                    "div"
+                );
+
+
+            card.className =
+                "drive-item";
+
+
+            card.innerHTML = `
+
+                <div class="drive-item-icon file">
+                    ${getFileIcon(
+                        file.name
+                    )}
+                </div>
+
+                <div class="drive-item-info">
+
+                    <strong title="${escapeHtml(file.name)}">
+                        ${escapeHtml(file.name)}
+                    </strong>
+
+                    <span>
+                        ${formatBytes(file.size)}
+                    </span>
+
+                </div>
+
+
+                <div class="item-menu-wrapper">
+
+                    <button
+                        class="item-menu"
+                        onclick="toggleFileMenu(event, '${escapeAttribute(file.key)}')">
+
+                        ⋮
+
+                    </button>
+
+                </div>
+
+            `;
+
+
+            grid.appendChild(card);
+
+        }
+    );
+
+
+    if (
+        folders.length === 0 &&
+        files.length === 0
+    ) {
+
+        grid.innerHTML = `
+
+            <div class="drive-empty">
+
+                <div>
+                    ☁
+                </div>
+
+                <h3>
+                    This folder is empty
+                </h3>
+
+                <p>
+                    Create a folder or upload a file.
+                </p>
+
+            </div>
+
+        `;
+
+    }
+
+}
 
 /* =========================
    UPLOAD
@@ -383,6 +590,11 @@ function uploadFile(file) {
     formData.append(
         "file",
         file
+    );
+
+    formData.append(
+        "prefix",
+        currentPrefix
     );
 
     uploadFileName.textContent =
@@ -1020,5 +1232,288 @@ function showToast(
         },
         3000
     );
+
+}
+
+function openCreateFolderModal() {
+
+    document
+        .getElementById(
+            "folderModal"
+        )
+        .classList.remove(
+            "hidden"
+        );
+
+
+    document
+        .getElementById(
+            "folderName"
+        )
+        .focus();
+
+}
+
+
+function closeFolderModal() {
+
+    document
+        .getElementById(
+            "folderModal"
+        )
+        .classList.add(
+            "hidden"
+        );
+
+}
+
+
+async function createFolder() {
+
+    const input =
+        document.getElementById(
+            "folderName"
+        );
+
+
+    const name =
+        input.value.trim();
+
+
+    if (!name) {
+
+        showToast(
+            "Enter a folder name",
+            "error"
+        );
+
+        return;
+
+    }
+
+
+    try {
+
+        const response =
+            await fetch(
+                "/api/folders",
+                {
+                    method: "POST",
+
+                    headers: {
+                        "Content-Type":
+                            "application/json"
+                    },
+
+                    body: JSON.stringify({
+                        name,
+                        parent:
+                            currentPrefix
+                    })
+                }
+            );
+
+
+        const data =
+            await response.json();
+
+
+        if (!response.ok) {
+
+            throw new Error(
+                data.error
+            );
+
+        }
+
+
+        closeFolderModal();
+
+        input.value = "";
+
+
+        showToast(
+            "Folder created successfully"
+        );
+
+
+        loadDirectory(
+            currentPrefix
+        );
+
+
+    } catch (error) {
+
+        showToast(
+            error.message,
+            "error"
+        );
+
+    }
+
+}
+
+async function openVersionHistory(
+    key
+) {
+
+    const modal =
+        document.getElementById(
+            "versionModal"
+        );
+
+
+    const list =
+        document.getElementById(
+            "versionList"
+        );
+
+
+    const name =
+        document.getElementById(
+            "versionFileName"
+        );
+
+
+    name.textContent =
+        key.split("/").pop();
+
+
+    modal.classList.remove(
+        "hidden"
+    );
+
+
+    list.innerHTML =
+        "Loading versions...";
+
+
+    try {
+
+        const response =
+            await fetch(
+                `/api/versions?key=${encodeURIComponent(key)}`
+            );
+
+
+        const data =
+            await response.json();
+
+
+        list.innerHTML = "";
+
+
+        data.versions.forEach(
+            version => {
+
+                const item =
+                    document.createElement(
+                        "div"
+                    );
+
+
+                item.className =
+                    "version-item";
+
+
+                item.innerHTML = `
+
+                    <div>
+
+                        <strong>
+
+                            ${
+                                version.is_latest
+                                    ? "Current version"
+                                    : "Previous version"
+                            }
+
+                        </strong>
+
+                        <span>
+
+                            ${formatDate(
+                                version.last_modified
+                            )}
+
+                            ·
+
+                            ${formatBytes(
+                                version.size
+                            )}
+
+                        </span>
+
+                    </div>
+
+
+                    <button
+                        class="secondary-button"
+                        onclick="downloadVersion(
+                            '${escapeAttribute(key)}',
+                            '${escapeAttribute(version.version_id)}'
+                        )">
+
+                        ↓
+
+                    </button>
+
+                `;
+
+
+                list.appendChild(
+                    item
+                );
+
+            }
+        );
+
+
+    } catch (error) {
+
+        list.innerHTML =
+            "Unable to load versions.";
+
+    }
+
+}
+
+
+function closeVersionModal() {
+
+    document
+        .getElementById(
+            "versionModal"
+        )
+        .classList.add(
+            "hidden"
+        );
+
+}
+
+
+async function downloadVersion(
+    key,
+    versionId
+) {
+
+    const response =
+        await fetch(
+            `/api/version-download?key=${encodeURIComponent(key)}&version_id=${encodeURIComponent(versionId)}`
+        );
+
+
+    const data =
+        await response.json();
+
+
+    if (data.url) {
+
+        window.open(
+            data.url,
+            "_blank"
+        );
+
+    }
 
 }
