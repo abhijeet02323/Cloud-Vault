@@ -2,7 +2,6 @@ const API = "/api";
 let currentPrefix = "";
 let items = [];
 let replaceKey = null;
-let shareKey = null;
 
 const $ = (selector) => document.querySelector(selector);
 const fileList = $("#fileList");
@@ -21,9 +20,6 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#folderForm").addEventListener("submit", createFolder);
   document.querySelectorAll("[data-close-modal]").forEach((button) => button.addEventListener("click", closeFolderModal));
   document.querySelectorAll("[data-close-versions]").forEach((button) => button.addEventListener("click", closeVersionsModal));
-  document.querySelectorAll("[data-close-share]").forEach((button) => button.addEventListener("click", closeShareModal));
-  $("#shareForm").addEventListener("submit", createShareLink);
-  $("#copyLink").addEventListener("click", copyShareLink);
   $("#enableVersioning").addEventListener("click", enableVersioning);
   $("#dropZone").addEventListener("dragover", (event) => { event.preventDefault(); $("#dropZone").classList.add("dragging"); });
   $("#dropZone").addEventListener("dragleave", () => $("#dropZone").classList.remove("dragging"));
@@ -85,7 +81,7 @@ function createRow(item) {
   name.className = "file-name";
   name.innerHTML = `<span class="file-icon ${item.folder ? "folder-icon" : ""}">${item.folder ? "■" : fileIcon(item.name)}</span><span>${escapeHtml(item.name)}</span>`;
   if (item.folder) name.addEventListener("click", () => loadDirectory(item.key));
-  else name.addEventListener("click", () => openFile(item.key));
+  else name.addEventListener("dblclick", () => download(item.key));
   const size = document.createElement("span");
   size.textContent = item.folder ? "Folder" : formatBytes(item.size);
   const modified = document.createElement("span");
@@ -94,7 +90,6 @@ function createRow(item) {
   actions.className = "actions";
   if (!item.folder) {
     actions.append(actionButton("↓", "Download", () => download(item.key)));
-    actions.append(actionButton("↗", "Share", () => openShareModal(item)));
     actions.append(actionButton("↻", "Replace", () => { replaceKey = item.key; $("#replaceInput").click(); }));
     actions.append(actionButton("◷", "Version history", () => openVersions(item)));
   }
@@ -160,17 +155,6 @@ async function download(key) {
   } catch (error) { showToast(error.message, true); }
 }
 
-async function openFile(key) {
-  const tab = window.open("", "_blank");
-  try {
-    const response = await fetch(`${API}/open?key=${encodeURIComponent(key)}`);
-    const data = await json(response);
-    if (!response.ok) throw new Error(data.error || "Unable to open file");
-    if (tab) tab.location.replace(data.url);
-    else window.location.assign(data.url);
-  } catch (error) { if (tab) tab.close(); showToast(error.message, true); }
-}
-
 async function remove(item) {
   if (!window.confirm(`Delete ${item.folder ? "folder" : "file"} “${item.name}”?`)) return;
   try {
@@ -194,45 +178,6 @@ async function createFolder(event) {
     showToast("Folder created");
     loadDirectory();
   } catch (error) { showToast(error.message, true); }
-}
-
-function openShareModal(item) {
-  shareKey = item.key;
-  $("#shareFileName").textContent = item.name;
-  $("#shareLink").classList.add("hidden");
-  $("#shareUrl").value = "";
-  $("#createShareLink").textContent = "Create link";
-  $("#shareModal").classList.remove("hidden");
-}
-
-async function createShareLink(event) {
-  event.preventDefault();
-  if (!shareKey) return;
-  const button = $("#createShareLink");
-  button.disabled = true;
-  button.textContent = "Creating…";
-  try {
-    const response = await fetch(`${API}/share`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: shareKey, expires_hours: Number($("#shareExpiration").value) }) });
-    const data = await json(response);
-    if (!response.ok) throw new Error(data.error || "Unable to create share link");
-    $("#shareUrl").value = data.url;
-    $("#shareLink").classList.remove("hidden");
-    button.textContent = "New link";
-    showToast(`View link created for ${data.expires_hours} hour${data.expires_hours === 1 ? "" : "s"}`);
-  } catch (error) { showToast(error.message, true); }
-  finally { button.disabled = false; }
-}
-
-async function copyShareLink() {
-  const input = $("#shareUrl");
-  if (!input.value) return;
-  try {
-    await navigator.clipboard.writeText(input.value);
-  } catch (_) {
-    input.select();
-    document.execCommand("copy");
-  }
-  showToast("Share link copied");
 }
 
 async function loadVersioningStatus() {
@@ -313,7 +258,6 @@ async function restoreVersion(key, versionId) {
 
 function closeFolderModal() { $("#folderModal").classList.add("hidden"); }
 function closeVersionsModal() { $("#versionsModal").classList.add("hidden"); }
-function closeShareModal() { $("#shareModal").classList.add("hidden"); shareKey = null; }
 async function json(response) { try { return await response.json(); } catch (_) { return {}; } }
 function showToast(message, error = false) { toast.textContent = message; toast.className = `toast show${error ? " error" : ""}`; window.clearTimeout(showToast.timer); showToast.timer = window.setTimeout(() => toast.className = "toast", 3500); }
 function formatBytes(size) { if (size === 0) return "0 B"; const units = ["B", "KB", "MB", "GB", "TB"]; const index = Math.min(Math.floor(Math.log(size) / Math.log(1024)), units.length - 1); return `${(size / 1024 ** index).toFixed(index ? 1 : 0)} ${units[index]}`; }

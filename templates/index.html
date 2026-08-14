@@ -21,6 +21,7 @@
       <div class="mobile-brand">CloudVault</div>
       <label class="search"><span>⌕</span><input id="searchInput" type="search" placeholder="Search in storage" autocomplete="off"></label>
       <button class="icon-button" id="refreshButton" aria-label="Refresh">↻</button>
+      <form class="account" method="post" action="{{ url_for('logout') }}"><img src="{{ user.avatar_url }}" alt="" referrerpolicy="no-referrer"><span>{{ user.login }}</span><button type="submit">Sign out</button></form>
     </header>
     <section class="content">
       <div class="page-heading">

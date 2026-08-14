@@ -1,15 +1,25 @@
 import os
+import json
+import secrets
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 from pathlib import PurePosixPath
 
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 from dotenv import load_dotenv
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, redirect, render_template, request, session, url_for
 
 
 load_dotenv()
 
 app = Flask(__name__)
+app.config.update(
+    SECRET_KEY=os.getenv("FLASK_SECRET_KEY") or secrets.token_urlsafe(32),
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+)
 
 AWS_REGION = os.getenv("AWS_REGION", "ap-south-1")
 S3_BUCKET = os.getenv("S3_BUCKET_NAME")
@@ -19,6 +29,37 @@ s3 = boto3.client(
     aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
     aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
 )
+
+GITHUB_AUTHORIZE_URL = "https://github.com/login/oauth/authorize"
+GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
+GITHUB_USER_URL = "https://api.github.com/user"
+
+
+def github_configured():
+    return bool(os.getenv("GITHUB_CLIENT_ID") and os.getenv("GITHUB_CLIENT_SECRET"))
+
+
+def github_redirect_uri():
+    return os.getenv("GITHUB_OAUTH_REDIRECT_URI") or url_for("github_callback", _external=True)
+
+
+def github_json(url, method="GET", data=None, headers=None):
+    encoded_data = urlencode(data).encode() if data else None
+    request_headers = {"Accept": "application/json", "User-Agent": "CloudVault"}
+    request_headers.update(headers or {})
+    github_request = Request(url, data=encoded_data, headers=request_headers, method=method)
+    with urlopen(github_request, timeout=10) as response:
+        return json.loads(response.read().decode())
+
+
+@app.before_request
+def require_login():
+    public_endpoints = {"login", "github_callback", "static"}
+    if request.endpoint in public_endpoints or session.get("user"):
+        return None
+    if request.path.startswith("/api/"):
+        return jsonify({"error": "Authentication required"}), 401
+    return redirect(url_for("login"))
 
 
 def s3_error(error):
@@ -81,7 +122,57 @@ def version_item(version):
 
 @app.route("/")
 def home():
-    return render_template("index.html")
+    return render_template("index.html", user=session["user"])
+
+
+@app.route("/login")
+def login():
+    if session.get("user"):
+        return redirect(url_for("home"))
+    if not github_configured():
+        return "GitHub OAuth is not configured. Add GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET to .env.", 500
+    state = secrets.token_urlsafe(32)
+    session["github_oauth_state"] = state
+    parameters = urlencode({
+        "client_id": os.environ["GITHUB_CLIENT_ID"],
+        "redirect_uri": github_redirect_uri(),
+        "scope": "read:user user:email",
+        "state": state,
+    })
+    return redirect(f"{GITHUB_AUTHORIZE_URL}?{parameters}")
+
+
+@app.route("/auth/github/callback")
+def github_callback():
+    if request.args.get("error"):
+        return f"GitHub sign-in was cancelled: {request.args.get('error')}", 400
+    state = request.args.get("state")
+    code = request.args.get("code")
+    if not code or not state or not secrets.compare_digest(state, session.pop("github_oauth_state", "")):
+        return "Invalid GitHub OAuth state.", 400
+    try:
+        token = github_json(GITHUB_TOKEN_URL, method="POST", data={
+            "client_id": os.environ["GITHUB_CLIENT_ID"],
+            "client_secret": os.environ["GITHUB_CLIENT_SECRET"],
+            "code": code,
+            "redirect_uri": github_redirect_uri(),
+        })
+        access_token = token.get("access_token")
+        if not access_token:
+            return "GitHub did not return an access token.", 400
+        user = github_json(GITHUB_USER_URL, headers={"Accept": "application/vnd.github+json", "Authorization": f"Bearer {access_token}"})
+    except (HTTPError, URLError, ValueError, TimeoutError) as error:
+        return f"GitHub sign-in could not be completed: {error}", 502
+
+    session.clear()
+    session["user"] = {"id": user["id"], "login": user["login"], "avatar_url": user.get("avatar_url", "")}
+    return redirect(url_for("home"))
+
+
+@app.route("/logout", methods=["POST"])
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
 
 
 @app.route("/api/files", methods=["GET"])
