@@ -40,8 +40,6 @@ CloudVault uses **Amazon S3** for reliable and scalable object storage.
 - Delete directories
 - Google Drive-inspired file and folder interface
 
-<<<<<<< HEAD
-=======
 Example:
 
 ```text
@@ -61,7 +59,7 @@ My Drive
     └── profile.png
 ```
 
->>>>>>> db81ebd (github auth2.0)
+> db81ebd (github auth2.0)
 ### 🔄 File Versioning
 
 CloudVault uses **Amazon S3 Versioning** to maintain multiple versions of files.
@@ -137,8 +135,6 @@ CloudVault uses **token-based sharing and S3 presigned URLs** rather than making
 - Filter the current file listing
 - Quickly locate stored objects
 
-<<<<<<< HEAD
-=======
 ### 📊 Storage Dashboard
 
 The dashboard provides information about:
@@ -187,7 +183,7 @@ CloudVault provides a modern Google Drive-inspired interface with:
                     │     Backend     │
                     └───────┬─────────┘
                             │
-<<<<<<< HEAD
+
               ┌─────────────|
               │             │           
               ▼             ▼           
@@ -238,22 +234,18 @@ CloudVault provides a modern Google Drive-inspired interface with:
 ## Authentication
 
 - GitHub OAuth 2.0
-<<<<<<< HEAD
-=======
 
 ## Database
 
 - SQLite for application metadata
 
->>>>>>> db81ebd (github auth2.0)
+> db81ebd (github auth2.0)
 ## AWS SDK
 
 - Boto3
 
 ---
 
-<<<<<<< HEAD
-=======
 # 🔑 Authentication Flow
 
 CloudVault uses GitHub OAuth 2.0 for authentication.
@@ -375,7 +367,7 @@ CloudVault/
 
 ---
 
->>>>>>> db81ebd (github auth2.0)
+> db81ebd (github auth2.0)
 # ⚙️ Installation
 
 ## 1. Clone the repository
@@ -386,10 +378,7 @@ git clone https://github.com/abhijeet02323/Cloud-Vault.git
 
 cd Cloud-Vault
 =======
-git clone https://github.com/YOUR_USERNAME/cloudvault.git
 
-cd cloudvault
->>>>>>> db81ebd (github auth2.0)
 ```
 
 ## 2. Create a virtual environment
@@ -521,11 +510,8 @@ http://127.0.0.1:5000
 
 | Method | Endpoint | Description |
 |---|---|---|
-<<<<<<< HEAD
 | `GET` | `/` | Cloud-Vault frontend |
-=======
 | `GET` | `/` | CloudVault frontend |
->>>>>>> db81ebd (github auth2.0)
 | `GET` | `/api/files` | List files/folders |
 | `POST` | `/api/files` | Upload file |
 | `DELETE` | `/api/files` | Delete file/folder |
@@ -555,38 +541,6 @@ Key security principles include:
 
 ---
 
-<<<<<<< HEAD
-=======
-# 🚀 Future Improvements
-
-Planned improvements include:
-
-- [ ] User-specific storage
-- [ ] PostgreSQL database
-- [ ] Shared with Me
-- [ ] User-to-user file sharing
-- [ ] Viewer/Editor permissions
-- [ ] Rename files and folders
-- [ ] Move files and folders
-- [ ] Copy files and folders
-- [ ] Trash/Recycle Bin
-- [ ] Restore deleted files
-- [ ] Starred files
-- [ ] Recent files
-- [ ] File preview
-- [ ] Folder sharing
-- [ ] S3 multipart uploads
-- [ ] Large-file upload support
-- [ ] Redis caching
-- [ ] Docker deployment
-- [ ] AWS EC2 deployment
-- [ ] CI/CD pipeline
-- [ ] CloudWatch monitoring
-- [ ] Activity and audit logs
-
----
->>>>>>> db81ebd (github auth2.0)
-
 # 🎯 Project Goals
 
 CloudVault aims to demonstrate practical knowledge of:
@@ -605,14 +559,5 @@ CloudVault aims to demonstrate practical knowledge of:
 - Web application development
 - Database integration
 - Scalable cloud architecture
-<<<<<<< HEAD
-=======
 
 ---
-
-# 📜 License
-
-This project is developed for educational, portfolio, and software development purposes.
-
-Add an appropriate open-source license before distributing the project publicly.
->>>>>>> db81ebd (github auth2.0)
